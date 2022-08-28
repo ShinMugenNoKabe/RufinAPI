@@ -1,6 +1,10 @@
+import io
 from csv import DictReader
 from io import BytesIO, StringIO
+from json import loads, dumps
+from zipfile import ZipFile
 
+import requests
 from barcode import EAN13, Code39, Code128, EAN8
 from barcode.codex import PZN7, Gs1_128
 from barcode.ean import JapanArticleNumber, EuropeanArticleNumber14
@@ -13,7 +17,7 @@ from pandas import read_excel
 from qrcode import QRCode, constants
 from rest_framework import serializers
 
-from apitest.utils import clean_string
+from apitest.utils import clean_string, download_extract_zip, clean_zip_file
 
 DICT_BARCODE_CLASS_BY_FORMAT = {
     "CODE39": Code39,
@@ -30,10 +34,17 @@ DICT_BARCODE_CLASS_BY_FORMAT = {
     "GS1128": Gs1_128
 }
 
+JSON_TO_APEX_API = "https://json2apex.herokuapp.com/makeApex"
+
+DICT_JSON_KEY_BY_APEX_FILE = {
+    "SpreadsheetWrapper.apxc": "apex_class",
+    "SpreadsheetWrapper_Test.apxc": "apex_test"
+}
 
 class SpreadsheetSerializer(serializers.Serializer):
     spreadsheet = serializers.FileField()
     as_list = serializers.BooleanField()
+    to_apex = serializers.BooleanField()
 
     def validate(self, data):
         return data
@@ -41,8 +52,7 @@ class SpreadsheetSerializer(serializers.Serializer):
     def create(self, validated_data):
         spreadsheet = validated_data.get("spreadsheet")
         as_list = validated_data.get("as_list")
-
-        print(as_list)
+        to_apex = validated_data.get("to_apex")
 
         spreadsheet_file = read_excel(spreadsheet.read())
         csv_string = StringIO(spreadsheet_file.to_csv(sep=";", index=False, header=True))
@@ -64,6 +74,19 @@ class SpreadsheetSerializer(serializers.Serializer):
                     return_json[f"{key}_as_list"].append(row[key])
         else:
             return_json = list(reader)
+
+        if to_apex:
+            response = requests.post(JSON_TO_APEX_API, data={
+                "json": dumps(return_json),
+                "className": "SpreadsheetWrapper"
+            })
+
+            return_json = {}
+
+            extracted_zip = download_extract_zip(response.content)
+
+            for f_name, f_content in extracted_zip:
+                return_json[DICT_JSON_KEY_BY_APEX_FILE.get(f_name)] = f_content.read().decode("utf-8")
 
         return return_json
 
