@@ -1,1 +1,1 @@
-web: gunicorn rufinapi.wsgi --log-file -
+web: gunicorn apitest.wsgi --log-file -
